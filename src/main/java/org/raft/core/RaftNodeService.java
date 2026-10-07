@@ -10,6 +10,8 @@ import org.raft.transport.RaftNodesClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
@@ -44,6 +46,12 @@ public class RaftNodeService {
         this.selfId = conf.selfId();
         this.clusterSize = conf.transport().peers().size() + 1;
         this.majority = clusterSize / 2 + 1;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public synchronized void start() {
+        log.info("[{}] started as FOLLOWER, term={}", selfId, currentTerm);
+        timerReset();
     }
 
     public synchronized void onElectionTimeout() {
@@ -161,6 +169,7 @@ public class RaftNodeService {
         votesReceived.clear();
         if (wasLeader) {
             stopHeartbeat();
+            timerReset();
         }
         log.info("[{}] became FOLLOWER, term={}", selfId, term);
     }
@@ -168,6 +177,7 @@ public class RaftNodeService {
     private void becomeLeader() {
         role = Role.LEADER;
         leaderId = selfId;
+        timer.stop();
         log.info("[{}] became LEADER, term={}, votes={}", selfId, currentTerm, votesReceived);
         startHeartbeat();
     }

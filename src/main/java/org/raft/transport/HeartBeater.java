@@ -3,17 +3,16 @@ package org.raft.transport;
 import org.raft.config.RaftNodeConf;
 import org.raft.model.HeartbeatRequest;
 import org.raft.model.HeartbeatResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.Set;
+import java.util.concurrent.*;
 import java.util.function.Consumer;
 
 @Service
@@ -24,6 +23,8 @@ public class HeartBeater {
     private final Map<String, String> peers;
     private final RestClient restClient;
     private final long intervalMs;
+    private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
+    private static final Logger log = LoggerFactory.getLogger(HeartBeater.class);
 
     public HeartBeater(RaftNodeConf conf) {
         this.peers = conf.transport().peers();
@@ -59,6 +60,11 @@ public class HeartBeater {
     private void sendHeartBeat(Consumer<HeartbeatResponse> callback, HeartbeatRequest request) {
         for (Map.Entry<String, String> entry : peers.entrySet()) {
             String url = entry.getValue();
+            String peerId = entry.getKey();
+
+            if (!inFlight.add(peerId)) {
+                continue;
+            }
 
             executor.submit(() -> {
                 try {
@@ -72,7 +78,9 @@ public class HeartBeater {
                         callback.accept(response);
                     }
                 } catch (Exception e) {
-                    //error handling
+                    log.debug("heartbeat to {} failed: {}", peerId, e.getMessage());
+                } finally {
+                    inFlight.remove(peerId);
                 }
             });
         }

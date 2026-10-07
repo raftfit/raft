@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Raft cluster</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f4f5; margin: 24px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .card { background: #fff; border-radius: 10px; padding: 16px 20px; width: 220px;
+          border-top: 6px solid #a1a1aa; box-shadow: 0 1px 3px #0002; }
+  .LEADER    { border-color: #16a34a; }
+  .CANDIDATE { border-color: #f59e0b; }
+  .FOLLOWER  { border-color: #3b82f6; }
+  .DOWN      { border-color: #dc2626; opacity: .6; }
+  h2 { margin: 0 0 8px; font-size: 18px; }
+  .role { font-weight: 600; margin-bottom: 8px; }
+  td { padding: 2px 8px 2px 0; }
+  td:first-child { color: #71717a; }
+</style>
+
+<h1>Raft cluster</h1>
+<div class="row" id="nodes"></div>
+
+<script>
+  const NODES = [8081, 8082, 8083];
+
+  async function load(port) {
+    try {
+      const r = await fetch(`http://localhost:${port}/api/status`,
+                            { signal: AbortSignal.timeout(250) });
+      return await r.json();
+    } catch {
+      return { nodeId: `:${port}`, role: 'DOWN' };
+    }
+  }
+
+  function card(s) {
+    return `<div class="card ${s.role}">
+      <h2>${s.nodeId}</h2>
+      <div class="role">${s.role}</div>
+      ${s.role === 'DOWN' ? '' : `<table>
+        <tr><td>term</td><td>${s.term}</td></tr>
+        <tr><td>leader</td><td>${s.leaderId ?? '—'}</td></tr>
+        <tr><td>votedFor</td><td>${s.votedFor ?? '—'}</td></tr>
+      </table>`}
+    </div>`;
+  }
+
+  async function tick() {
+    const all = await Promise.all(NODES.map(load));
+    document.getElementById('nodes').innerHTML = all.map(card).join('');
+  }
+
+  tick();
+  setInterval(tick, 300);
+</script>

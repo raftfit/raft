@@ -1,0 +1,9 @@
+server:
+  port: 8083
+
+raft:
+  selfId: "node-3"
+  transport:
+    peers:
+      node-1: "http://localhost:8081"
+      node-2: "http://localhost:8082"
