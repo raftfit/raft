@@ -1,0 +1,10 @@
+raft:
+  selfId: "node-1"
+  heartbeatIntervalMs: 50
+  transport:
+    peers:
+      node-2: "http://localhost:8082"
+      node-3: "http://localhost:8083"
+  http:
+    connectTimeoutMs: 500
+    readTimeoutMs: 500

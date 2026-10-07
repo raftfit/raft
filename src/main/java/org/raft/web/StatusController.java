@@ -1,21 +1,27 @@
 package org.raft.web;
 
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
 import org.raft.core.RaftNodeService;
-import org.raft.core.Status;
+import org.raft.model.Status;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class StatusController {
+    @Autowired
+    private RaftNodeService node;
 
-    private final RaftNodeService node;
-
-    public StatusController(RaftNodeService node) {
-        this.node = node;
-    }
-
-    @GetMapping("/status")
+    @GetMapping("/api/status")
+    @ResponseStatus(HttpStatus.OK)
     public Status status() {
-        return node.getStatus();
+        var selfId = node.getSelfId();
+        var role = node.getRole();
+        var currentTerm = node.getCurrentTerm();
+        var votedFor = node.getVotedFor();
+        var leaderId = node.getLeaderId();
+
+        return new Status(selfId, role, currentTerm, votedFor, leaderId);
     }
 }

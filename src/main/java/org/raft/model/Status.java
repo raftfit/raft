@@ -1,12 +1,11 @@
-package org.raft.core;
+package org.raft.model;
 
-import java.util.List;
+import org.raft.core.Role;
 
 public record Status(
         String nodeId,
         Role role,
         long term,
         String votedFor,
-        String leaderId,
-        List<String> peers
+        String leaderId
 ) {}
