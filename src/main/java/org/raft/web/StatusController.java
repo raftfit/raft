@@ -23,7 +23,8 @@ public class StatusController {
         var currentTerm = node.getCurrentTerm();
         var votedFor = node.getVotedFor();
         var leaderId = node.getLeaderId();
+        var isPaused = node.getIsPaused();
 
-        return new Status(selfId, role, currentTerm, votedFor, leaderId);
+        return new Status(selfId, role, currentTerm, votedFor, leaderId, isPaused);
     }
 }

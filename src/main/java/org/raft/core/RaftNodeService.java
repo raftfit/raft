@@ -12,7 +12,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -42,6 +45,20 @@ public class RaftNodeService {
     private String leaderId = null;
     private final Set<String> votesReceived = new HashSet<>();
 
+    private boolean isPaused = false;
+
+    public synchronized void pause() {
+        isPaused = true;
+        timer.stop();
+        heartbeater.stop();
+    }
+
+    public synchronized void resume() {
+        isPaused = false;
+        if (role == Role.LEADER) startHeartbeat();
+        else timerReset();
+    }
+
     public RaftNodeService(RaftNodeConf conf) {
         this.selfId = conf.selfId();
         this.clusterSize = conf.transport().peers().size() + 1;
@@ -55,6 +72,8 @@ public class RaftNodeService {
     }
 
     public synchronized void onElectionTimeout() {
+        if (isPaused) return;
+
         if (role == Role.LEADER) {
             return;
         }
@@ -81,6 +100,8 @@ public class RaftNodeService {
 
     
     public synchronized VoteResponse onRequestVote(RequestVote req) {
+        if (isPaused) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "node is paused");
+
         checkTerm(req.term());
 
         boolean grant;
@@ -107,6 +128,8 @@ public class RaftNodeService {
 
     
     public synchronized void onVoteResponse(VoteResponse resp) {
+        if (isPaused) return;
+
         checkTerm(resp.term());
 
         if (role != Role.CANDIDATE) {
@@ -130,6 +153,8 @@ public class RaftNodeService {
     }
 
     public synchronized HeartbeatResponse onHeartbeat(HeartbeatRequest req) {
+        if (isPaused) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "node is paused");
+
         if (req.term() < currentTerm) {
             return new HeartbeatResponse(currentTerm, leaderId);
         }
@@ -151,6 +176,7 @@ public class RaftNodeService {
     }
 
     public synchronized void onHeartbeatResponse(HeartbeatResponse resp) {
+        if (isPaused) return;
         checkTerm(resp.term());
     }
 
@@ -233,5 +259,9 @@ public class RaftNodeService {
 
     public synchronized long getCurrentTerm() {
         return currentTerm;
+    }
+
+    public synchronized boolean getIsPaused() {
+        return isPaused;
     }
 }

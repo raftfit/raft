@@ -9,11 +9,16 @@
   .LEADER    { border-color: #16a34a; }
   .CANDIDATE { border-color: #f59e0b; }
   .FOLLOWER  { border-color: #3b82f6; }
+  .PAUSED    { border-color: #8b5cf6; opacity: .75; }
   .DOWN      { border-color: #dc2626; opacity: .6; }
   h2 { margin: 0 0 8px; font-size: 18px; }
   .role { font-weight: 600; margin-bottom: 8px; }
   td { padding: 2px 8px 2px 0; }
   td:first-child { color: #71717a; }
+  .actions { margin-top: 10px; display: flex; gap: 8px; }
+  button { padding: 4px 10px; border: 1px solid #d4d4d8; border-radius: 6px;
+           background: #fff; cursor: pointer; }
+  button:hover { background: #f4f4f5; }
 </style>
 
 <h1>Raft cluster</h1>
@@ -21,33 +26,53 @@
 
 <script>
   const NODES = [8081, 8082, 8083];
+  const nodesEl = document.getElementById('nodes');
+  let last = '';
 
   async function load(port) {
     try {
       const r = await fetch(`http://localhost:${port}/api/status`,
                             { signal: AbortSignal.timeout(250) });
-      return await r.json();
+      return { ...(await r.json()), port };
     } catch {
-      return { nodeId: `:${port}`, role: 'DOWN' };
+      return { nodeId: `:${port}`, role: 'DOWN', port };
     }
   }
 
   function card(s) {
-    return `<div class="card ${s.role}">
+    return `<div class="card ${s.paused ? 'PAUSED' : s.role}">
       <h2>${s.nodeId}</h2>
-      <div class="role">${s.role}</div>
+      <div class="role">${s.role}${s.paused ? ' (paused)' : ''}</div>
       ${s.role === 'DOWN' ? '' : `<table>
         <tr><td>term</td><td>${s.term}</td></tr>
         <tr><td>leader</td><td>${s.leaderId ?? '—'}</td></tr>
         <tr><td>votedFor</td><td>${s.votedFor ?? '—'}</td></tr>
-      </table>`}
+      </table>
+      <div class="actions">
+        <button data-port="${s.port}" data-action="${s.paused ? 'resume' : 'pause'}">${s.paused ? 'Resume' : 'Pause'}</button>
+        <button data-port="${s.port}" data-action="kill">Kill</button>
+      </div>`}
     </div>`;
   }
 
   async function tick() {
     const all = await Promise.all(NODES.map(load));
-    document.getElementById('nodes').innerHTML = all.map(card).join('');
+    const html = all.map(card).join('');
+    if (html !== last) {
+      nodesEl.innerHTML = html;
+      last = html;
+    }
   }
+
+  nodesEl.addEventListener('click', async e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.action === 'kill' && !confirm(`Kill node on :${b.dataset.port}?`)) return;
+    try {
+      await fetch(`http://localhost:${b.dataset.port}/api/${b.dataset.action}`, { method: 'POST' });
+    } catch {}
+    tick();
+  });
 
   tick();
   setInterval(tick, 300);

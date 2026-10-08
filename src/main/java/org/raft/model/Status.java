@@ -7,5 +7,6 @@ public record Status(
         Role role,
         long term,
         String votedFor,
-        String leaderId
+        String leaderId,
+        boolean paused
 ) {}
