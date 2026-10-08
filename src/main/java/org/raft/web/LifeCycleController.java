@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @CrossOrigin
-public class ControlController {
+public class LifeCycleController {
 
     @Autowired
     private RaftNodeService node;
