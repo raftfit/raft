@@ -1,10 +1,7 @@
 package org.raft.core;
 
 import org.raft.config.RaftNodeConf;
-import org.raft.model.HeartbeatRequest;
-import org.raft.model.HeartbeatResponse;
-import org.raft.model.RequestVote;
-import org.raft.model.VoteResponse;
+import org.raft.model.*;
 import org.raft.transport.HeartBeater;
 import org.raft.transport.RaftNodesClient;
 import org.slf4j.Logger;
@@ -16,8 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 @Service
 public class RaftNodeService {
@@ -42,6 +38,10 @@ public class RaftNodeService {
     private String votedFor = null;
     private Role role = Role.FOLLOWER;
     private String leaderId = null;
+    private long commitedIndx = 0;
+    private final Map<String, PeerProgress> peerProgress = new HashMap<>();
+    private final Set<String> peerIds;
+    private ArrayList<LogEntry> raftLogs = new ArrayList<>();
     private final Set<String> votesReceived = new HashSet<>();
 
     private boolean isPaused = false;
@@ -62,6 +62,7 @@ public class RaftNodeService {
         this.selfId = conf.selfId();
         this.clusterSize = conf.transport().peers().size() + 1;
         this.majority = clusterSize / 2 + 1;
+        this.peerIds = Set.copyOf(conf.transport().peers().keySet());
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -155,14 +156,18 @@ public class RaftNodeService {
         if (isPaused) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "node is paused");
 
         if (req.term() < currentTerm) {
-            return new HeartbeatResponse(currentTerm, leaderId);
+            return new HeartbeatResponse(currentTerm, leaderId, false, 0);
         }
 
         if (req.term() > currentTerm) {
             becomeFollowerOnNewTerm(req.term());
         }
 
-        if (role != Role.FOLLOWER) {
+        if (role == Role.LEADER) {
+            log.error("[{}] two leaders in term {}", selfId, currentTerm);
+            return new HeartbeatResponse(currentTerm, leaderId, false, 0);
+        }
+        if (role == Role.CANDIDATE) {
             role = Role.FOLLOWER;
             votesReceived.clear();
             log.info("[{}] recognized leader {} in term={}", selfId, req.leaderId(), currentTerm);
@@ -171,12 +176,66 @@ public class RaftNodeService {
         leaderId = req.leaderId();
         timerReset();
 
-        return new HeartbeatResponse(currentTerm, leaderId);
+        long prevLogIndx = req.prevLogIndex();
+        if (prevLogIndx > lastLogIndex()) {
+            return new HeartbeatResponse(currentTerm, leaderId, false, 0);
+        }
+        long myPrevTerm = (prevLogIndx == 0) ? 0 : raftLogs.get((int) prevLogIndx - 1).term();
+        if (myPrevTerm != req.prevLogTerm()) {
+            return new HeartbeatResponse(currentTerm, leaderId, false, 0);
+        }
+
+        long index = prevLogIndx;
+        for (LogEntry entry : req.raftLogs()) {
+            index++;
+            if (index <= lastLogIndex()) {
+                if (raftLogs.get((int) index - 1).term() == entry.term()) {
+                    continue;
+                }
+                raftLogs.subList((int) index - 1, raftLogs.size()).clear();
+            }
+            raftLogs.add(entry);
+        }
+
+        long lastNew = prevLogIndx + req.raftLogs().size();
+        long newCommit = Math.min(req.leaderCommit(), lastNew);
+        if (newCommit > commitedIndx) {
+            commitedIndx = newCommit;
+        }
+
+        return new HeartbeatResponse(currentTerm, leaderId, true, lastNew);
     }
 
-    public synchronized void onHeartbeatResponse(HeartbeatResponse resp) {
+    public synchronized void onHeartbeatResponse(String peerId, HeartbeatResponse resp) {
         if (isPaused) return;
         checkTerm(resp.term());
+        if (role != Role.LEADER || resp.term() != currentTerm) return;
+
+        PeerProgress peer = peerProgress.get(peerId);
+        if (resp.success()) {
+            peer.matchIndex = resp.matchIndex();
+            peer.nextIndex = resp.matchIndex() + 1;
+            updateCommitIndex();
+        } else {
+            peer.nextIndex = Math.max(1, peer.nextIndex - 1);
+        }
+    }
+
+    private void updateCommitIndex() {
+        long n = lastLogIndex();
+        while (n > commitedIndx) {
+            int count = 1;
+            for (PeerProgress p : peerProgress.values()) {
+                if (p.matchIndex >= n) {
+                    count++;
+                }
+            }
+            if (count >= majority) {
+                commitedIndx = n;
+                return;
+            }
+            n--;
+        }
     }
 
     private void checkTerm(long term) {
@@ -203,6 +262,9 @@ public class RaftNodeService {
         role = Role.LEADER;
         leaderId = selfId;
         timer.stop();
+        for (String peer : peerIds) {
+            peerProgress.put(peer, new PeerProgress(lastLogIndex() + 1, 0));
+        }
         log.info("[{}] became LEADER, term={}, votes={}", selfId, currentTerm, votesReceived);
         startHeartbeat();
     }
@@ -219,25 +281,42 @@ public class RaftNodeService {
     }
 
     private void startHeartbeat() {
-        heartbeater.start(this::onHeartbeatResponse, new HeartbeatRequest(
+        heartbeater.start(this::buildAppendEntries, this::onHeartbeatResponse);
+    }
+
+    public synchronized HeartbeatRequest buildAppendEntries (String peerId) {
+        if (role != Role.LEADER || isPaused) return null;
+
+        PeerProgress peer = peerProgress.get(peerId);
+
+        long prevLogIndx = peer.nextIndex - 1;
+        long prevLogTerm = (prevLogIndx == 0) ? 0 : raftLogs.get((int) prevLogIndx - 1).term();
+
+        ArrayList<LogEntry> entries = new ArrayList<>(raftLogs.subList((int) prevLogIndx, raftLogs.size()));
+
+        return new HeartbeatRequest(
                 currentTerm,
                 leaderId,
-                lastLogIndex(),
-                lastLogTerm()
-        ));
+                prevLogIndx,
+                prevLogTerm,
+                commitedIndx,
+                entries
+        );
     }
 
     private void stopHeartbeat() {
         heartbeater.stop();
     }
 
-    // Лог будет добавлен в следующих заданиях
     private long lastLogIndex() {
-        return 0;
+        return raftLogs.size();
     }
 
     private long lastLogTerm() {
-        return 0;
+        if (!raftLogs.isEmpty()) {
+            return raftLogs.get(raftLogs.size() - 1).term();
+        }
+        else return 0;
     }
 
     public synchronized String getSelfId() {

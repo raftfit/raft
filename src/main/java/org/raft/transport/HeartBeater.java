@@ -13,7 +13,9 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 @Service
 public class HeartBeater {
@@ -39,11 +41,12 @@ public class HeartBeater {
         return RestClient.builder().requestFactory(requestFactory).build();
     }
 
-    public synchronized void start(Consumer<HeartbeatResponse> callback, HeartbeatRequest request) {
+    public synchronized void start(Function<String, HeartbeatRequest> buildRequest,
+                                   BiConsumer<String, HeartbeatResponse> onResponse) {
         stop();
 
         scheduledTask = scheduler.scheduleAtFixedRate(
-                () -> sendHeartBeat(callback, request),
+                () -> sendHeartBeat(buildRequest, onResponse),
                 0,
                 intervalMs,
                 TimeUnit.MILLISECONDS
@@ -57,7 +60,8 @@ public class HeartBeater {
         }
     }
 
-    private void sendHeartBeat(Consumer<HeartbeatResponse> callback, HeartbeatRequest request) {
+    private void sendHeartBeat(Function<String, HeartbeatRequest> buildRequest,
+                               BiConsumer<String, HeartbeatResponse> onResponse) {
         for (Map.Entry<String, String> entry : peers.entrySet()) {
             String url = entry.getValue();
             String peerId = entry.getKey();
@@ -68,14 +72,15 @@ public class HeartBeater {
 
             executor.submit(() -> {
                 try {
+                    HeartbeatRequest request = buildRequest.apply(peerId);
+                    if (request == null) return;
                     HeartbeatResponse response = restClient.post()
                             .uri(url + "/api/heartbeat")
                             .body(request)
                             .retrieve()
                             .body(HeartbeatResponse.class);
-
                     if (response != null) {
-                        callback.accept(response);
+                        onResponse.accept(peerId, response);
                     }
                 } catch (Exception e) {
                     log.debug("heartbeat to {} failed: {}", peerId, e.getMessage());
