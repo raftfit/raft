@@ -24,7 +24,9 @@ public class StatusController {
         var votedFor = node.getVotedFor();
         var leaderId = node.getLeaderId();
         var isPaused = node.getIsPaused();
+        var commitIndex = node.getCommitIndex();
+        var lastLogIndex = node.getLastLogIndex();
 
-        return new Status(selfId, role, currentTerm, votedFor, leaderId, isPaused);
+        return new Status(selfId, role, currentTerm, votedFor, leaderId, isPaused, commitIndex, lastLogIndex);
     }
 }

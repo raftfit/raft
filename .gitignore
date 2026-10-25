@@ -34,3 +34,19 @@ build/
 
 ### Mac OS ###
 .DS_Store
+._*
+.AppleDouble
+
+### Logs ###
+*.log
+logs/
+
+### Claude Code ###
+.claude/settings.local.json
+
+### Env / secrets ###
+.env
+*.env
+
+### Spring Boot ###
+HELP.md

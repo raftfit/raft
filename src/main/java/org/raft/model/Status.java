@@ -8,5 +8,7 @@ public record Status(
         long term,
         String votedFor,
         String leaderId,
-        boolean paused
+        boolean paused,
+        long commitIndex,
+        long lastLogIndex
 ) {}

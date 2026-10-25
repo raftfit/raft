@@ -19,9 +19,25 @@
   button { padding: 4px 10px; border: 1px solid #d4d4d8; border-radius: 6px;
            background: #fff; cursor: pointer; }
   button:hover { background: #f4f4f5; }
+  .send { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+  .send input { padding: 4px 8px; border: 1px solid #d4d4d8; border-radius: 6px; width: 240px; }
+  .send select { padding: 4px 8px; border: 1px solid #d4d4d8; border-radius: 6px; background: #fff; }
+  #sendResult.ok  { color: #16a34a; }
+  #sendResult.err { color: #dc2626; }
+  .log { margin-top: 10px; max-height: 200px; overflow-y: auto; font: 12px ui-monospace, monospace; }
+  .log div { padding: 1px 0; }
+  .log .uncommitted { color: #a1a1aa; }
 </style>
 
 <h1>Raft cluster</h1>
+<form class="send" id="send">
+  <input id="command" placeholder="command" autocomplete="off">
+  <select id="target">
+    <option value="auto">auto (leader)</option>
+  </select>
+  <button>Send</button>
+  <span id="sendResult"></span>
+</form>
 <div class="row" id="nodes"></div>
 
 <script>
@@ -31,9 +47,12 @@
 
   async function load(port) {
     try {
-      const r = await fetch(`http://localhost:${port}/api/status`,
-                            { signal: AbortSignal.timeout(250) });
-      return { ...(await r.json()), port };
+      const opts = { signal: AbortSignal.timeout(250) };
+      const [status, logs] = await Promise.all([
+        fetch(`http://localhost:${port}/api/status`, opts).then(r => r.json()),
+        fetch(`http://localhost:${port}/api/logs`, opts).then(r => r.json()),
+      ]);
+      return { ...status, entries: logs.entries, port };
     } catch {
       return { nodeId: `:${port}`, role: 'DOWN', port };
     }
@@ -47,7 +66,11 @@
         <tr><td>term</td><td>${s.term}</td></tr>
         <tr><td>leader</td><td>${s.leaderId ?? '—'}</td></tr>
         <tr><td>votedFor</td><td>${s.votedFor ?? '—'}</td></tr>
+        <tr><td>commit</td><td>${s.commitIndex} / ${s.lastLogIndex}</td></tr>
       </table>
+      <div class="log">${s.entries.map((e, i) =>
+        `<div class="${i + 1 > s.commitIndex ? 'uncommitted' : ''}">${i + 1} [t${e.term}] ${escape(e.command ?? '(no-op)')}</div>`
+      ).join('')}</div>
       <div class="actions">
         <button data-port="${s.port}" data-action="${s.paused ? 'resume' : 'pause'}">${s.paused ? 'Resume' : 'Pause'}</button>
         <button data-port="${s.port}" data-action="kill">Kill</button>
@@ -55,8 +78,24 @@
     </div>`;
   }
 
+  const escape = t => t.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+  let lastStatuses = [];
+
+  const targetEl = document.getElementById('target');
+  for (const port of NODES) targetEl.add(new Option(`:${port}`, port));
+
+  function updateTargets(all) {
+    for (const s of all) {
+      const opt = [...targetEl.options].find(o => o.value == s.port);
+      const label = s.role === 'DOWN' ? `:${s.port} (down)` : `${s.nodeId} :${s.port}`;
+      if (opt.text !== label) opt.text = label;
+    }
+  }
+
   async function tick() {
     const all = await Promise.all(NODES.map(load));
+    lastStatuses = all;
+    updateTargets(all);
     const html = all.map(card).join('');
     if (html !== last) {
       nodesEl.innerHTML = html;
@@ -71,6 +110,47 @@
     try {
       await fetch(`http://localhost:${b.dataset.port}/api/${b.dataset.action}`, { method: 'POST' });
     } catch {}
+    tick();
+  });
+
+  document.getElementById('send').addEventListener('submit', async e => {
+    e.preventDefault();
+    const input = document.getElementById('command');
+    const result = document.getElementById('sendResult');
+    const show = (text, ok) => { result.textContent = text; result.className = ok ? 'ok' : 'err'; };
+    if (!input.value) return;
+
+    let target;
+    if (targetEl.value === 'auto') {
+      target = lastStatuses.find(s => s.role === 'LEADER' && !s.paused);
+      if (!target) { show('no leader', false); return; }
+    } else {
+      target = lastStatuses.find(s => s.port == targetEl.value);
+    }
+    const name = target.role === 'DOWN' ? `:${target.port}` : target.nodeId;
+
+    try {
+      const r = await fetch(`http://localhost:${target.port}/api/entries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: input.value }),
+      });
+      if (r.status === 503) {
+        show(`${name} is paused`, false);
+      } else {
+        const body = await r.json();
+        if (body.accepted) {
+          show(`appended to ${name} at index ${body.index} (term ${body.term})`, true);
+          input.value = '';
+        } else {
+          const role = lastStatuses.find(s => s.port === target.port)?.role ?? '?';
+          show(`wrong node: ${name} is ${role} in term ${body.term}, ` +
+               (body.leaderId ? `leader is ${body.leaderId}` : 'leader unknown'), false);
+        }
+      }
+    } catch {
+      show(`${name} is unreachable`, false);
+    }
     tick();
   });
 

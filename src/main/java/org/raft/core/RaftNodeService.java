@@ -19,6 +19,7 @@ import java.util.*;
 public class RaftNodeService {
 
     private static final Logger log = LoggerFactory.getLogger(RaftNodeService.class);
+    private static final int MAX_ENTRIES_PER_REQUEST = 100;
 
     private final String selfId;
 
@@ -178,11 +179,11 @@ public class RaftNodeService {
 
         long prevLogIndx = req.prevLogIndex();
         if (prevLogIndx > lastLogIndex()) {
-            return new HeartbeatResponse(currentTerm, leaderId, false, 0);
+            return new HeartbeatResponse(currentTerm, leaderId, false, lastLogIndex());
         }
         long myPrevTerm = (prevLogIndx == 0) ? 0 : raftLogs.get((int) prevLogIndx - 1).term();
         if (myPrevTerm != req.prevLogTerm()) {
-            return new HeartbeatResponse(currentTerm, leaderId, false, 0);
+            return new HeartbeatResponse(currentTerm, leaderId, false, lastLogIndex());
         }
 
         long index = prevLogIndx;
@@ -217,13 +218,29 @@ public class RaftNodeService {
             peer.nextIndex = resp.matchIndex() + 1;
             updateCommitIndex();
         } else {
-            peer.nextIndex = Math.max(1, peer.nextIndex - 1);
+            peer.nextIndex = Math.max(1, Math.min(peer.nextIndex - 1, resp.matchIndex() + 1));
         }
+    }
+
+    public synchronized ClientEntryResponse appendCommand(String command) {
+        if (isPaused) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "node is paused");
+
+        if (role != Role.LEADER) {
+            return new ClientEntryResponse(false, 0, currentTerm, leaderId);
+        }
+
+        raftLogs.add(new LogEntry(command, currentTerm));
+        log.info("[{}] appended entry index={}, term={}", selfId, lastLogIndex(), currentTerm);
+        updateCommitIndex();
+        return new ClientEntryResponse(true, lastLogIndex(), currentTerm, leaderId);
     }
 
     private void updateCommitIndex() {
         long n = lastLogIndex();
         while (n > commitedIndx) {
+            if (raftLogs.get((int) n - 1).term() != currentTerm) {
+                return;
+            }
             int count = 1;
             for (PeerProgress p : peerProgress.values()) {
                 if (p.matchIndex >= n) {
@@ -265,7 +282,9 @@ public class RaftNodeService {
         for (String peer : peerIds) {
             peerProgress.put(peer, new PeerProgress(lastLogIndex() + 1, 0));
         }
+        raftLogs.add(new LogEntry(null, currentTerm));
         log.info("[{}] became LEADER, term={}, votes={}", selfId, currentTerm, votesReceived);
+        updateCommitIndex();
         startHeartbeat();
     }
 
@@ -292,7 +311,8 @@ public class RaftNodeService {
         long prevLogIndx = peer.nextIndex - 1;
         long prevLogTerm = (prevLogIndx == 0) ? 0 : raftLogs.get((int) prevLogIndx - 1).term();
 
-        ArrayList<LogEntry> entries = new ArrayList<>(raftLogs.subList((int) prevLogIndx, raftLogs.size()));
+        int to = (int) Math.min(raftLogs.size(), prevLogIndx + MAX_ENTRIES_PER_REQUEST);
+        ArrayList<LogEntry> entries = new ArrayList<>(raftLogs.subList((int) prevLogIndx, to));
 
         return new HeartbeatRequest(
                 currentTerm,
@@ -341,5 +361,17 @@ public class RaftNodeService {
 
     public synchronized boolean getIsPaused() {
         return isPaused;
+    }
+
+    public synchronized long getCommitIndex() {
+        return commitedIndx;
+    }
+
+    public synchronized long getLastLogIndex() {
+        return lastLogIndex();
+    }
+
+    public synchronized List<LogEntry> getLog() {
+        return List.copyOf(raftLogs);
     }
 }
