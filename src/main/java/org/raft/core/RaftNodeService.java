@@ -2,6 +2,7 @@ package org.raft.core;
 
 import org.raft.config.RaftNodeConf;
 import org.raft.model.*;
+import org.raft.store.LogStore;
 import org.raft.transport.HeartBeater;
 import org.raft.transport.RaftNodesClient;
 import org.slf4j.Logger;
@@ -35,6 +36,8 @@ public class RaftNodeService {
     @Autowired
     private RaftNodesClient client;
 
+    private final LogStore store;
+
     private long currentTerm = 0;
     private String votedFor = null;
     private Role role = Role.FOLLOWER;
@@ -42,7 +45,7 @@ public class RaftNodeService {
     private long commitedIndx = 0;
     private final Map<String, PeerProgress> peerProgress = new HashMap<>();
     private final Set<String> peerIds;
-    private ArrayList<LogEntry> raftLogs = new ArrayList<>();
+    private List<LogEntry> raftLogs = new ArrayList<>();
     private final Set<String> votesReceived = new HashSet<>();
 
     private boolean isPaused = false;
@@ -59,11 +62,14 @@ public class RaftNodeService {
         else timerReset();
     }
 
-    public RaftNodeService(RaftNodeConf conf) {
+    public RaftNodeService(RaftNodeConf conf, LogStore store) {
+        this.store = store;
         this.selfId = conf.selfId();
         this.clusterSize = conf.transport().peers().size() + 1;
         this.majority = clusterSize / 2 + 1;
         this.peerIds = Set.copyOf(conf.transport().peers().keySet());
+
+        this.raftLogs = store.load();
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -186,6 +192,7 @@ public class RaftNodeService {
             return new HeartbeatResponse(currentTerm, leaderId, false, lastLogIndex());
         }
 
+        boolean logDirty = false;
         long index = prevLogIndx;
         for (LogEntry entry : req.raftLogs()) {
             index++;
@@ -194,14 +201,20 @@ public class RaftNodeService {
                     continue;
                 }
                 raftLogs.subList((int) index - 1, raftLogs.size()).clear();
+                logDirty = true;
             }
             raftLogs.add(entry);
+            logDirty = true;
         }
 
         long lastNew = prevLogIndx + req.raftLogs().size();
         long newCommit = Math.min(req.leaderCommit(), lastNew);
         if (newCommit > commitedIndx) {
             commitedIndx = newCommit;
+        }
+
+        if (logDirty) {
+            saveLog();
         }
 
         return new HeartbeatResponse(currentTerm, leaderId, true, lastNew);
@@ -230,8 +243,9 @@ public class RaftNodeService {
         }
 
         raftLogs.add(new LogEntry(command, currentTerm));
-        log.info("[{}] appended entry index={}, term={}", selfId, lastLogIndex(), currentTerm);
         updateCommitIndex();
+        saveLog();
+        log.info("[{}] appended entry index={}, term={}", selfId, lastLogIndex(), currentTerm);
         return new ClientEntryResponse(true, lastLogIndex(), currentTerm, leaderId);
     }
 
@@ -283,9 +297,11 @@ public class RaftNodeService {
             peerProgress.put(peer, new PeerProgress(lastLogIndex() + 1, 0));
         }
         raftLogs.add(new LogEntry("ELECTION term=" + currentTerm, currentTerm));
-        log.info("[{}] became LEADER, term={}, votes={}", selfId, currentTerm, votesReceived);
+        saveLog();
         updateCommitIndex();
         startHeartbeat();
+
+        log.info("[{}] became LEADER, term={}, votes={}", selfId, currentTerm, votesReceived);
     }
 
     private boolean logIsUpToDate(long candidateLastIndex, long candidateLastTerm) {
@@ -373,5 +389,9 @@ public class RaftNodeService {
 
     public synchronized List<LogEntry> getLog() {
         return List.copyOf(raftLogs);
+    }
+
+    private void saveLog() {
+        store.save(raftLogs);
     }
 }

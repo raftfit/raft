@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import org.hibernate.validator.constraints.URL;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.Map;
@@ -18,7 +19,8 @@ public record RaftNodeConf(
         @NotBlank String selfId,
         @Positive long heartbeatIntervalMs,
         @Valid HttpConfig http,
-        @Valid ElectionConfig election
+        @Valid ElectionConfig election,
+        @Valid StoreConfig store
 ) {
 
     public record TransportConfig(Map<String, @URL String> peers) {}
@@ -28,6 +30,8 @@ public record RaftNodeConf(
 
     public record ElectionConfig(@Positive @NotNull long lowerBound,
                                  @Positive @NotNull long upperBound) {}
+
+    public record StoreConfig(@NotBlank @DefaultValue("./log") String dir) {}
 
     @AssertTrue(message = "Upper bound must be greater or equal than lower bound")
     public boolean isUpperBoundGtOrEqThanLower() {
