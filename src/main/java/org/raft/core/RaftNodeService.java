@@ -282,7 +282,7 @@ public class RaftNodeService {
         for (String peer : peerIds) {
             peerProgress.put(peer, new PeerProgress(lastLogIndex() + 1, 0));
         }
-        raftLogs.add(new LogEntry(null, currentTerm));
+        raftLogs.add(new LogEntry("ELECTION term=" + currentTerm, currentTerm));
         log.info("[{}] became LEADER, term={}, votes={}", selfId, currentTerm, votesReceived);
         updateCommitIndex();
         startHeartbeat();
