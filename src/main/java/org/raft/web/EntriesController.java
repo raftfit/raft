@@ -16,12 +16,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @CrossOrigin
 public class EntriesController {
+
+    private static final long APPEND_TIMEOUT_MS = 5000;
+
     @Autowired
     private RaftNodeService node;
 
     @PostMapping("/api/entries")
     public ResponseEntity<ClientEntryResponse> entries(@RequestBody ClientEntryRequest request) {
-        ClientEntryResponse response = node.appendCommand(request.command());
+        ClientEntryResponse response = node.appendCommand(request.command(), APPEND_TIMEOUT_MS);
         HttpStatus status = response.accepted() ? HttpStatus.OK : HttpStatus.CONFLICT;
         return ResponseEntity.status(status).body(response);
     }

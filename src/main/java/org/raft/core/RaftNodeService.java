@@ -2,7 +2,7 @@ package org.raft.core;
 
 import org.raft.config.RaftNodeConf;
 import org.raft.model.*;
-import org.raft.store.LogStore;
+import org.raft.store.Store;
 import org.raft.transport.HeartBeater;
 import org.raft.transport.RaftNodesClient;
 import org.slf4j.Logger;
@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class RaftNodeService {
@@ -36,7 +37,7 @@ public class RaftNodeService {
     @Autowired
     private RaftNodesClient client;
 
-    private final LogStore store;
+    private final Store store;
 
     private long currentTerm = 0;
     private String votedFor = null;
@@ -62,14 +63,17 @@ public class RaftNodeService {
         else timerReset();
     }
 
-    public RaftNodeService(RaftNodeConf conf, LogStore store) {
+    public RaftNodeService(RaftNodeConf conf, Store store) {
         this.store = store;
         this.selfId = conf.selfId();
         this.clusterSize = conf.transport().peers().size() + 1;
         this.majority = clusterSize / 2 + 1;
         this.peerIds = Set.copyOf(conf.transport().peers().keySet());
 
-        this.raftLogs = store.load();
+        Store.RaftState state = store.load();
+        this.raftLogs = new ArrayList<>(state.raftLog());
+        this.currentTerm = state.currentTerm();
+        this.votedFor = state.votedFor();
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -91,6 +95,7 @@ public class RaftNodeService {
         leaderId = null;
         votesReceived.clear();
         votesReceived.add(selfId);
+        persist();
         log.info("[{}] election timeout, starting election, term={}", selfId, currentTerm);
 
         timerReset();
@@ -125,6 +130,7 @@ public class RaftNodeService {
         } else {
             grant = true;
             votedFor = req.candidateId();
+            persist();
             timerReset();
             reason = "vote granted";
         }
@@ -201,7 +207,6 @@ public class RaftNodeService {
                     continue;
                 }
                 raftLogs.subList((int) index - 1, raftLogs.size()).clear();
-                logDirty = true;
             }
             raftLogs.add(entry);
             logDirty = true;
@@ -214,7 +219,7 @@ public class RaftNodeService {
         }
 
         if (logDirty) {
-            saveLog();
+            persist();
         }
 
         return new HeartbeatResponse(currentTerm, leaderId, true, lastNew);
@@ -235,7 +240,7 @@ public class RaftNodeService {
         }
     }
 
-    public synchronized ClientEntryResponse appendCommand(String command) {
+    public synchronized ClientEntryResponse appendCommand(String command, long timeoutMs) {
         if (isPaused) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "node is paused");
 
         if (role != Role.LEADER) {
@@ -244,9 +249,31 @@ public class RaftNodeService {
 
         raftLogs.add(new LogEntry(command, currentTerm));
         updateCommitIndex();
-        saveLog();
-        log.info("[{}] appended entry index={}, term={}", selfId, lastLogIndex(), currentTerm);
-        return new ClientEntryResponse(true, lastLogIndex(), currentTerm, leaderId);
+        persist();
+
+        long index = lastLogIndex();
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+
+        while (commitedIndx < index) {
+            if (role != Role.LEADER) {
+                log.warn("[{}] lost leadership before entry {} committed", selfId, index);
+                return new ClientEntryResponse(false, index, currentTerm, leaderId);
+            }
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) {
+                log.warn("[{}] timed out waiting for entry {} to commit (commit={})", selfId, index, commitedIndx);
+                return new ClientEntryResponse(false, index, currentTerm, leaderId);
+            }
+            try {
+                wait(TimeUnit.NANOSECONDS.toMillis(remaining), (int) (remaining % 1_000_000L));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new ClientEntryResponse(false, index, currentTerm, leaderId);
+            }
+        }
+
+        log.info("[{}] appended and committed entry index={}, term={}", selfId, index, currentTerm);
+        return new ClientEntryResponse(true, index, currentTerm, leaderId);
     }
 
     private void updateCommitIndex() {
@@ -263,6 +290,7 @@ public class RaftNodeService {
             }
             if (count >= majority) {
                 commitedIndx = n;
+                notifyAll();
                 return;
             }
             n--;
@@ -282,6 +310,8 @@ public class RaftNodeService {
         role = Role.FOLLOWER;
         leaderId = null;
         votesReceived.clear();
+        persist();
+        notifyAll();
         if (wasLeader) {
             stopHeartbeat();
             timerReset();
@@ -297,7 +327,7 @@ public class RaftNodeService {
             peerProgress.put(peer, new PeerProgress(lastLogIndex() + 1, 0));
         }
         raftLogs.add(new LogEntry("ELECTION term=" + currentTerm, currentTerm));
-        saveLog();
+        persist();
         updateCommitIndex();
         startHeartbeat();
 
@@ -391,7 +421,7 @@ public class RaftNodeService {
         return List.copyOf(raftLogs);
     }
 
-    private void saveLog() {
-        store.save(raftLogs);
+    private void persist() {
+        store.save(currentTerm, votedFor, raftLogs);
     }
 }
