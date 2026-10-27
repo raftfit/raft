@@ -17,20 +17,20 @@ import java.util.Map;
 public record RaftNodeConf(
         @Valid TransportConfig transport,
         @NotBlank String selfId,
-        @Positive long heartbeatIntervalMs,
-        @Valid HttpConfig http,
-        @Valid ElectionConfig election,
+        @Positive @DefaultValue("50") long heartbeatIntervalMs,
+        @Valid @DefaultValue HttpConfig http,
+        @Valid @DefaultValue ElectionConfig election,
         @Valid @DefaultValue StoreConfig store,
         @Valid @DefaultValue EntriesConfig entries
 ) {
 
     public record TransportConfig(Map<String, @URL String> peers) {}
 
-    public record HttpConfig(@Positive long connectTimeoutMs,
-                             @Positive long readTimeoutMs) {}
+    public record HttpConfig(@Positive @DefaultValue("500") long connectTimeoutMs,
+                             @Positive @DefaultValue("500") long readTimeoutMs) {}
 
-    public record ElectionConfig(@Positive @NotNull int lowerBound,
-                                 @Positive @NotNull int upperBound) {}
+    public record ElectionConfig(@Positive @DefaultValue("50") int lowerBound,
+                                 @Positive @DefaultValue("150") int upperBound) {}
 
     public record StoreConfig(@NotBlank @DefaultValue("./log") String dir) {}
 
