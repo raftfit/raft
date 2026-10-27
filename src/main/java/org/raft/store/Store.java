@@ -1,6 +1,6 @@
 package org.raft.store;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.raft.config.RaftNodeConf;
 import org.raft.model.LogEntry;
 import org.slf4j.Logger;
