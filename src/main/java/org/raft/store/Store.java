@@ -38,16 +38,13 @@ public class Store {
         this.stateFile = Paths.get(conf.store().dir()).resolve(conf.selfId() + FILE_SUFFIX);
     }
 
-    public Path getStateFile() {
-        return stateFile;
-    }
-
     public synchronized void save(long currentTerm, String votedFor, List<LogEntry> raftLog) {
         try {
             Files.createDirectories(stateFile.getParent());
             Path tmp = Files.createTempFile(stateFile.getParent(), stateFile.getFileName().toString(), TMP_SUFFIX);
             try {
-                Files.write(tmp, objectMapper.writeValueAsBytes(new RaftState(currentTerm, votedFor, raftLog)));
+                Files.write(tmp, objectMapper.writerWithDefaultPrettyPrinter()
+                        .writeValueAsBytes(new RaftState(currentTerm, votedFor, raftLog)));
                 fsync(tmp);
                 Files.move(tmp, stateFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } finally {
