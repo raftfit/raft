@@ -83,7 +83,7 @@ public class HeartBeater {
                         onResponse.accept(peerId, response);
                     }
                 } catch (Exception e) {
-                    log.debug("heartbeat to {} failed: {}", peerId, e.getMessage());
+                    log.error("heartbeat to {} failed: {}", peerId, e.getMessage());
                 } finally {
                     inFlight.remove(peerId);
                 }

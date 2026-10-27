@@ -3,6 +3,8 @@ package org.raft.transport;
 import org.raft.config.RaftNodeConf;
 import org.raft.model.RequestVote;
 import org.raft.model.VoteResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -18,6 +20,7 @@ public class RaftNodesClient {
     private final ExecutorService executor = Executors.newFixedThreadPool(10);
     private final Map<String, String> peers;
     private final RestClient restClient;
+    private static final Logger log = LoggerFactory.getLogger(RaftNodesClient.class);
 
 
     public RaftNodesClient(RaftNodeConf conf) {
@@ -52,7 +55,7 @@ public class RaftNodesClient {
                             callback.accept(response);
                         }
                     } catch (Exception e) {
-                        //error handling
+                        log.error("requestVote to {} failed: {}", peerId, e.getMessage());
                     }
                 });
             }
