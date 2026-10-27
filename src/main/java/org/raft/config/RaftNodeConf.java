@@ -20,7 +20,7 @@ public record RaftNodeConf(
         @Positive long heartbeatIntervalMs,
         @Valid HttpConfig http,
         @Valid ElectionConfig election,
-        @Valid StoreConfig store
+        @Valid @DefaultValue StoreConfig store
 ) {
 
     public record TransportConfig(Map<String, @URL String> peers) {}
