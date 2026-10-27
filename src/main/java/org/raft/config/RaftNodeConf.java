@@ -28,8 +28,8 @@ public record RaftNodeConf(
     public record HttpConfig(@Positive long connectTimeoutMs,
                              @Positive long readTimeoutMs) {}
 
-    public record ElectionConfig(@Positive @NotNull long lowerBound,
-                                 @Positive @NotNull long upperBound) {}
+    public record ElectionConfig(@Positive @NotNull int lowerBound,
+                                 @Positive @NotNull int upperBound) {}
 
     public record StoreConfig(@NotBlank @DefaultValue("./log") String dir) {}
 
