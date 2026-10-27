@@ -20,7 +20,8 @@ public record RaftNodeConf(
         @Positive long heartbeatIntervalMs,
         @Valid HttpConfig http,
         @Valid ElectionConfig election,
-        @Valid @DefaultValue StoreConfig store
+        @Valid @DefaultValue StoreConfig store,
+        @Valid @DefaultValue EntriesConfig entries
 ) {
 
     public record TransportConfig(Map<String, @URL String> peers) {}
@@ -32,6 +33,8 @@ public record RaftNodeConf(
                                  @Positive @NotNull int upperBound) {}
 
     public record StoreConfig(@NotBlank @DefaultValue("./log") String dir) {}
+
+    public record EntriesConfig(@Positive @DefaultValue("5000") long appendTimeout) { }
 
     @AssertTrue(message = "Upper bound must be greater or equal than lower bound")
     public boolean isUpperBoundGtOrEqThanLower() {

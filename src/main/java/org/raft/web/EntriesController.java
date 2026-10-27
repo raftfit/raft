@@ -1,5 +1,6 @@
 package org.raft.web;
 
+import org.raft.config.RaftNodeConf;
 import org.raft.core.RaftNodeService;
 import org.raft.model.ClientEntryRequest;
 import org.raft.model.ClientEntryResponse;
@@ -16,15 +17,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @CrossOrigin
 public class EntriesController {
+    private final long timeout;
 
-    private static final long APPEND_TIMEOUT_MS = 5000;
+    public EntriesController(RaftNodeConf conf) {
+        timeout = conf.entries().appendTimeout();
+    }
 
     @Autowired
     private RaftNodeService node;
 
     @PostMapping("/api/entries")
     public ResponseEntity<ClientEntryResponse> entries(@RequestBody ClientEntryRequest request) {
-        ClientEntryResponse response = node.appendCommand(request.command(), APPEND_TIMEOUT_MS);
+        ClientEntryResponse response = node.appendCommand(request.command(), timeout);
         HttpStatus status = response.accepted() ? HttpStatus.OK : HttpStatus.CONFLICT;
         return ResponseEntity.status(status).body(response);
     }
