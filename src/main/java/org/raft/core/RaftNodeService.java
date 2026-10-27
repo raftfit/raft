@@ -29,7 +29,8 @@ public class RaftNodeService {
     private final int clusterSize;
     private final int majority;
 
-    private final ElectionTimer timer = new ElectionTimer();
+    @Autowired
+    private ElectionTimer timer;
 
     @Autowired
     private HeartBeater heartbeater;
