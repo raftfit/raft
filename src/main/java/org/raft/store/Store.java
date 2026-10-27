@@ -18,11 +18,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
 
-/**
- * Персистентность всего durable-состояния Raft-ноды: currentTerm, votedFor и лог.
- * Пишется одним атомарным JSON-файлом (temp + fsync + ATOMIC_MOVE), чтобы на диске
- * всегда была либо старая, либо новая согласованная тройка — никогда не обрыв.
- */
 @Component
 public class Store {
 
