@@ -55,10 +55,6 @@ public class Store {
         }
     }
 
-    /**
-     * Читает состояние с диска. Если файла ещё нет — стартовое состояние (терм 0, голоса нет, пустой лог).
-     * Повреждённый файл — критическое состояние, бросаем исключение, а не молча стартуем с нуля.
-     */
     public synchronized RaftState load() {
         if (!Files.exists(stateFile)) {
             log.info("Raft state not found at {}, starting fresh", stateFile);
