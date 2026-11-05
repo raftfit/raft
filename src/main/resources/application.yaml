@@ -1,5 +1,5 @@
 raft:
   heartbeatIntervalMs: 50
-  http:
-    connectTimeoutMs: 500
-    readTimeoutMs: 500
+  election:
+    lowerBound: 150
+    upperBound: 300
