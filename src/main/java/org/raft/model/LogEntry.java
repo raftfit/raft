@@ -1,3 +1,3 @@
 package org.raft.model;
 
-public record LogEntry(String command, long term) {}
+public record LogEntry(Command command, long term) {}

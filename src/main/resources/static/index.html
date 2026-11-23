@@ -31,7 +31,8 @@
 
 <h1>Raft cluster</h1>
 <form class="send" id="send">
-  <input id="command" placeholder="command" autocomplete="off">
+  <input id="key" placeholder="key" autocomplete="off">
+  <input id="value" placeholder="value (json)" autocomplete="off">
   <select id="target">
     <option value="auto">auto (leader)</option>
   </select>
@@ -69,7 +70,7 @@
         <tr><td>commit</td><td>${s.commitIndex} / ${s.lastLogIndex}</td></tr>
       </table>
       <div class="log">${s.entries.map((e, i) =>
-        `<div class="${i + 1 > s.commitIndex ? 'uncommitted' : ''}">${i + 1} [t${e.term}] ${escape(e.command ?? '(no-op)')}</div>`
+        `<div class="${i + 1 > s.commitIndex ? 'uncommitted' : ''}">${i + 1} [t${e.term}] ${formatCommand(e.command)}</div>`
       ).join('')}</div>
       <div class="actions">
         <button data-port="${s.port}" data-action="${s.paused ? 'resume' : 'pause'}">${s.paused ? 'Resume' : 'Pause'}</button>
@@ -79,6 +80,9 @@
   }
 
   const escape = t => t.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+  const formatCommand = c => c?.type === 'post'
+    ? escape(`${c.key} = ${JSON.stringify(c.value)}`)
+    : '(no-op)';
   let lastStatuses = [];
 
   const targetEl = document.getElementById('target');
@@ -115,10 +119,14 @@
 
   document.getElementById('send').addEventListener('submit', async e => {
     e.preventDefault();
-    const input = document.getElementById('command');
+    const keyEl = document.getElementById('key');
+    const valueEl = document.getElementById('value');
     const result = document.getElementById('sendResult');
     const show = (text, ok) => { result.textContent = text; result.className = ok ? 'ok' : 'err'; };
-    if (!input.value) return;
+    if (!keyEl.value) return;
+
+    let value;
+    try { value = JSON.parse(valueEl.value); } catch { value = valueEl.value; }
 
     let target;
     if (targetEl.value === 'auto') {
@@ -130,10 +138,10 @@
     const name = target.role === 'DOWN' ? `:${target.port}` : target.nodeId;
 
     try {
-      const r = await fetch(`http://localhost:${target.port}/api/entries`, {
+      const r = await fetch(`http://localhost:${target.port}/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: input.value }),
+        body: JSON.stringify({ key: keyEl.value, value }),
       });
       if (r.status === 503) {
         show(`${name} is paused`, false);
@@ -141,7 +149,8 @@
         const body = await r.json();
         if (body.accepted) {
           show(`appended to ${name} at index ${body.index} (term ${body.term})`, true);
-          input.value = '';
+          keyEl.value = '';
+          valueEl.value = '';
         } else {
           const role = lastStatuses.find(s => s.port === target.port)?.role ?? '?';
           show(`wrong node: ${name} is ${role} in term ${body.term}, ` +

@@ -241,7 +241,7 @@ public class RaftNodeService {
         }
     }
 
-    public synchronized ClientEntryResponse appendCommand(String command, long timeoutMs) {
+    public synchronized ClientEntryResponse appendCommand(Command command, long timeoutMs) {
         if (isPaused) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "node is paused");
 
         if (role != Role.LEADER) {
@@ -327,7 +327,7 @@ public class RaftNodeService {
         for (String peer : peerIds) {
             peerProgress.put(peer, new PeerProgress(lastLogIndex() + 1, 0));
         }
-        raftLogs.add(new LogEntry("ELECTION term=" + currentTerm, currentTerm));
+        raftLogs.add(new LogEntry(new NoOp(), currentTerm));
         persist();
         updateCommitIndex();
         startHeartbeat();
