@@ -42,10 +42,10 @@ public class QueryController {
         return ResponseEntity.status(status).body(response);
     }
 
-    // TODO: чтение ключа из машины состояний (хэш-таблицы), строящейся применением закоммиченных записей
     @GetMapping("/query")
     public ResponseEntity<HashtablePostOutput> getQuery(@RequestParam("key") @NotBlank String key) {
-        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
+        HashtablePostOutput value = node.query(key);
+        return value == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(value);
     }
 
     @GetMapping("/log")

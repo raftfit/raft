@@ -13,6 +13,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.JsonNode;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -45,10 +46,12 @@ public class RaftNodeService {
     private Role role = Role.FOLLOWER;
     private String leaderId = null;
     private long commitedIndx = 0;
+    private long lastApplied = 0;
     private final Map<String, PeerProgress> peerProgress = new HashMap<>();
     private final Set<String> peerIds;
     private List<LogEntry> raftLogs = new ArrayList<>();
     private final Set<String> votesReceived = new HashSet<>();
+    private final Map<String, JsonNode> hashtable = new HashMap<>();
 
     private boolean isPaused = false;
 
@@ -75,6 +78,8 @@ public class RaftNodeService {
         this.raftLogs = new ArrayList<>(state.raftLog());
         this.currentTerm = state.currentTerm();
         this.votedFor = state.votedFor();
+        this.commitedIndx = state.commitIndex();
+        applyCommitted();
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -215,11 +220,14 @@ public class RaftNodeService {
 
         long lastNew = prevLogIndx + req.raftLogs().size();
         long newCommit = Math.min(req.leaderCommit(), lastNew);
+        boolean commitAdvanced = false;
         if (newCommit > commitedIndx) {
             commitedIndx = newCommit;
+            applyCommitted();
+            commitAdvanced = true;
         }
 
-        if (logDirty) {
+        if (logDirty || commitAdvanced) {
             persist();
         }
 
@@ -291,11 +299,30 @@ public class RaftNodeService {
             }
             if (count >= majority) {
                 commitedIndx = n;
+                applyCommitted();
+                persist();
                 notifyAll();
                 return;
             }
             n--;
         }
+    }
+
+    private void applyCommitted() {
+        while (lastApplied < commitedIndx) {
+            LogEntry entry = raftLogs.get((int) lastApplied);
+            if (entry.command() instanceof HashtablePost post) {
+                hashtable.put(post.key(), post.value());
+            }
+            lastApplied++;
+        }
+    }
+
+    public synchronized HashtablePostOutput query(String key) {
+        if (!hashtable.containsKey(key)) {
+            return null;
+        }
+        return new HashtablePostOutput(key, hashtable.get(key));
     }
 
     private void checkTerm(long term) {
@@ -423,6 +450,6 @@ public class RaftNodeService {
     }
 
     private void persist() {
-        store.save(currentTerm, votedFor, raftLogs);
+        store.save(currentTerm, votedFor, raftLogs, commitedIndx);
     }
 }

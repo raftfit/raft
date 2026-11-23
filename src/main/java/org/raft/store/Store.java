@@ -33,13 +33,13 @@ public class Store {
         this.stateFile = Paths.get(conf.store().dir()).resolve(conf.selfId() + FILE_SUFFIX);
     }
 
-    public synchronized void save(long currentTerm, String votedFor, List<LogEntry> raftLog) {
+    public synchronized void save(long currentTerm, String votedFor, List<LogEntry> raftLog, long commitedIndx) {
         try {
             Files.createDirectories(stateFile.getParent());
             Path tmp = Files.createTempFile(stateFile.getParent(), stateFile.getFileName().toString(), TMP_SUFFIX);
             try {
                 Files.write(tmp, objectMapper.writerWithDefaultPrettyPrinter()
-                        .writeValueAsBytes(new RaftState(currentTerm, votedFor, raftLog)));
+                        .writeValueAsBytes(new RaftState(currentTerm, votedFor, raftLog, commitedIndx)));
                 fsync(tmp);
                 Files.move(tmp, stateFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } finally {
@@ -62,10 +62,14 @@ public class Store {
         }
     }
 
-    public record RaftState(long currentTerm, String votedFor, List<LogEntry> raftLog) {
+    public record RaftState(long currentTerm, String votedFor, List<LogEntry> raftLog, Long commitedIndx) {
 
         public static RaftState empty() {
-            return new RaftState(0, null, List.of());
+            return new RaftState(0, null, List.of(), 0L);
+        }
+
+        public long commitIndex() {
+            return commitedIndx == null ? 0L : commitedIndx;
         }
     }
 
