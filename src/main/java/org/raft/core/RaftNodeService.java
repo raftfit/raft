@@ -54,6 +54,7 @@ public class RaftNodeService {
     private final Map<String, JsonNode> hashtable = new HashMap<>();
 
     private boolean isPaused = false;
+    private boolean needPersist = false;
 
     public synchronized void pause() {
         isPaused = true;
@@ -79,6 +80,7 @@ public class RaftNodeService {
         this.currentTerm = state.currentTerm();
         this.votedFor = state.votedFor();
         this.commitedIndx = state.commitIndex();
+        this.needPersist = conf.needPersist();
         applyCommitted();
     }
 
@@ -450,6 +452,6 @@ public class RaftNodeService {
     }
 
     private void persist() {
-        store.save(currentTerm, votedFor, raftLogs, commitedIndx);
+        if (needPersist) store.save(currentTerm, votedFor, raftLogs, commitedIndx);
     }
 }

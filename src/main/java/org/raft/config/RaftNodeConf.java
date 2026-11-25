@@ -21,7 +21,8 @@ public record RaftNodeConf(
         @Valid @DefaultValue HttpConfig http,
         @Valid @DefaultValue ElectionConfig election,
         @Valid @DefaultValue StoreConfig store,
-        @Valid @DefaultValue EntriesConfig entries
+        @Valid @DefaultValue EntriesConfig entries,
+        @Valid @DefaultValue("false") boolean needPersist
 ) {
 
     public record TransportConfig(Map<String, @URL String> peers) {}
